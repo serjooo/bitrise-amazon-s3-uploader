@@ -26,12 +26,18 @@ deps:
     bin_name: aws
 run_if: ""
 inputs:
+  - file_paths: ""
+    opts:
+      title: "File paths"
+      summary: "Comma-separated paths to the files  to be uploaded"
+      description: ""
+      is_required: true
   - file_path: ""
     opts:
       title: "File path"
       summary: "Path to the file to be uploaded"
       description: ""
-      is_required: true
+      is_required: false
   - app_slug: "$BITRISE_APP_SLUG"
     opts:
       title: "BITRISE's App-Slug variable (passed automatically on Bitrise)"
