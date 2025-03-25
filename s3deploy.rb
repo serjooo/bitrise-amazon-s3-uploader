@@ -41,16 +41,22 @@ def public_url_for_bucket_and_path(bucket_name, bucket_region, path_in_bucket)
 end
 
 def export_output(out_key, out_value)
-  IO.popen("envman add --key #{out_key.to_s}", 'r+') { |f|
+  IO.popen("envman add --key #{out_key}", 'r+') do |f|
     f.write(out_value.to_s)
     f.close_write
     f.read
-  }
+  end
+end
 
 def upload_file_to_s3(file, base_path_in_bucket, bucket_name, acl_arg)
   file_path_in_bucket = "#{base_path_in_bucket}/#{File.basename(file)}"
   file_full_s3_path = s3_object_uri_for_bucket_and_path(bucket_name, file_path_in_bucket)
+  public_url_file = public_url_for_bucket_and_path(options[:bucket_name], options[:bucket_region], file_path_in_bucket)
+  log_info("Deploy info for file #{file}:")
+  log_details("* Access Level: #{options[:acl]}")
+  log_details("* File: #{public_url_file}")
   fail "Failed to upload file: #{file}" unless do_s3upload(file, file_full_s3_path, acl_arg)
+  return public_url_file
 end
 
 def do_s3upload(sourcepth, full_destpth, aclstr)
@@ -95,19 +101,8 @@ begin
   ENV['AWS_SECRET_ACCESS_KEY'] = options[:secret_key]
   ENV['AWS_DEFAULT_REGION'] = options[:bucket_region] unless options[:bucket_region].to_s.empty?
 
-
-  #
-  # ipa upload
-  log_info('Uploading file...')
-
-  file_path_in_bucket = "#{base_path_in_bucket}/#{File.basename(options[:file])}"
-  file_full_s3_path = s3_object_uri_for_bucket_and_path(options[:bucket_name], file_path_in_bucket)
-  public_url_file = public_url_for_bucket_and_path(options[:bucket_name], options[:bucket_region], file_path_in_bucket)
   base_path_in_bucket = options[:path_in_bucket] || "bitrise_#{options[:app_slug]}/#{Time.now.utc.to_i}_build_#{options[:build_slug]}"
 
-  fail 'Failed to upload file' unless do_s3upload(options[:file], file_full_s3_path, acl_arg)
-
-  export_output('S3_UPLOAD_STEP_URL', public_url_file)
   # supported: private, public_read
   acl_arg = case options[:acl]
             when 'public_read' then 'public-read'
@@ -117,19 +112,23 @@ begin
 
   log_info("Uploading files to S3")
 
-  ENV['S3_UPLOAD_STEP_URL'] = "#{public_url_file}"
+  @public_urls ||= []
   options[:files].each do |file|
     log_info("Uploading file #{file} to S3...")
     fail "File not found: #{file}" unless File.exist?(file)
-    upload_file_to_s3(file, base_path_in_bucket, options[:bucket_name], acl_arg)
+    @public_urls << upload_file_to_s3(file, base_path_in_bucket, options[:bucket_name], acl_arg)
   end
 
-  #
-  # Print deploy infos
-  log_info 'Deploy infos:'
-  log_details("* Access Level: #{options[:acl]}")
-  log_details("* File: #{public_url_file}")
+  if @public_urls.size == 1
+    export_output('S3_UPLOAD_STEP_URL', @public_urls.first)
+  else
+    export_output('S3_UPLOAD_STEP_URLS', @public_urls.join(','))
+  end
+
+  log_details('Public URLs:')
+  @public_urls.each { |url| log_details("* #{url}") }
   log_done('Upload process completed successfully')
+
 rescue => ex
   status = 'failed'
   log_fail(ex.message)
