@@ -68,8 +68,12 @@ end
 # -----------------------
 
 # `file_paths` should be a comma-separated string of file paths.
+if ENV['file_path']
+  log_warn("ENV['file_path'] is deprecated and will be removed in a future release. Please use ENV['file_paths'] instead.")
+end
+
 options = {
-  files: (ENV['file_paths'] || '').split(',').map(&:strip),
+  files: (ENV['file_paths'] || ENV['file_path'] || '').split(',').map(&:strip),
   app_slug: ENV['app_slug'],
   build_slug: ENV['build_slug'],
   access_key: ENV['aws_access_key'],
