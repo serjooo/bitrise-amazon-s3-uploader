@@ -14,7 +14,7 @@ function print_and_do_command {
 }
 
 function inspect_test_result {
-  if [ $1 -eq 0 ]; then
+  if [ "$1" -eq 0 ]; then
     test_results_success_count=$[test_results_success_count + 1]
   else
     test_results_error_count=$[test_results_error_count + 1]
@@ -122,6 +122,9 @@ test_results_error_count=0
   export bucket_name="123"
   export file_path="$test_file_path"
   export bucket_region="eu-west-1"
+  export app_slug="test"
+  export build_slug="test"
+  export file_access_level="private"
 
   expect_success "aws_access_key environment variable should be set" is_not_empty "$aws_access_key"
   expect_success "aws_secret_key environment variable should be set" is_not_empty "$aws_secret_key"

@@ -48,10 +48,10 @@ def export_output(out_key, out_value)
   end
 end
 
-def upload_file_to_s3(file, base_path_in_bucket, bucket_name, acl_arg)
+def upload_file_to_s3(file, base_path_in_bucket, bucket_name, acl_arg, options)
   file_path_in_bucket = "#{base_path_in_bucket}/#{File.basename(file)}"
   file_full_s3_path = s3_object_uri_for_bucket_and_path(bucket_name, file_path_in_bucket)
-  public_url_file = public_url_for_bucket_and_path(options[:bucket_name], options[:bucket_region], file_path_in_bucket)
+  public_url_file = public_url_for_bucket_and_path(bucket_name, options[:bucket_region], file_path_in_bucket)
   log_info("Deploy info for file #{file}:")
   log_details("* Access Level: #{options[:acl]}")
   log_details("* File: #{public_url_file}")
@@ -120,7 +120,7 @@ begin
   options[:files].each do |file|
     log_info("Uploading file #{file} to S3...")
     fail "File not found: #{file}" unless File.exist?(file)
-    @public_urls << upload_file_to_s3(file, base_path_in_bucket, options[:bucket_name], acl_arg)
+    @public_urls << upload_file_to_s3(file, base_path_in_bucket, options[:bucket_name], acl_arg, options)
   end
 
   if @public_urls.size == 1
