@@ -46,6 +46,11 @@ def export_output(out_key, out_value)
     f.close_write
     f.read
   }
+
+def upload_file_to_s3(file, base_path_in_bucket, bucket_name, acl_arg)
+  file_path_in_bucket = "#{base_path_in_bucket}/#{File.basename(file)}"
+  file_full_s3_path = s3_object_uri_for_bucket_and_path(bucket_name, file_path_in_bucket)
+  fail "Failed to upload file: #{file}" unless do_s3upload(file, file_full_s3_path, acl_arg)
 end
 
 def do_s3upload(sourcepth, full_destpth, aclstr)
@@ -56,8 +61,9 @@ end
 # --- Main
 # -----------------------
 
+# `file_paths` should be a comma-separated string of file paths.
 options = {
-  file: ENV['file_path'],
+  files: (ENV['file_paths'] || '').split(',').map(&:strip),
   app_slug: ENV['app_slug'],
   build_slug: ENV['build_slug'],
   access_key: ENV['aws_access_key'],
@@ -75,14 +81,11 @@ status = 'success'
 begin
   #
   # Validate options
-  fail 'No file found to upload. Terminating.' unless File.exist?(options[:file])
-
+  fail 'No files specified for upload. Terminating.' if options[:files].empty?
   fail 'Missing required input: app_slug' if options[:app_slug].to_s.eql?('')
   fail 'Missing required input: build_slug' if options[:build_slug].to_s.eql?('')
-
   fail 'Missing required input: aws_access_key' if options[:access_key].to_s.eql?('')
   fail 'Missing required input: aws_secret_key' if options[:secret_key].to_s.eql?('')
-
   fail 'Missing required input: bucket_name' if options[:bucket_name].to_s.eql?('')
   fail 'Missing required input: file_access_level' if options[:acl].to_s.eql?('')
 
@@ -112,15 +115,21 @@ begin
             else fail "Invalid ACL option: #{options[:acl]}"
             end
 
-  log_done('File upload success')
+  log_info("Uploading files to S3")
 
   ENV['S3_UPLOAD_STEP_URL'] = "#{public_url_file}"
+  options[:files].each do |file|
+    log_info("Uploading file #{file} to S3...")
+    fail "File not found: #{file}" unless File.exist?(file)
+    upload_file_to_s3(file, base_path_in_bucket, options[:bucket_name], acl_arg)
+  end
 
   #
   # Print deploy infos
   log_info 'Deploy infos:'
   log_details("* Access Level: #{options[:acl]}")
   log_details("* File: #{public_url_file}")
+  log_done('Upload process completed successfully')
 rescue => ex
   status = 'failed'
   log_fail(ex.message)
