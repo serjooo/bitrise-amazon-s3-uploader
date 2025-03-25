@@ -90,32 +90,8 @@ begin
   # AWS configs
   ENV['AWS_ACCESS_KEY_ID'] = options[:access_key]
   ENV['AWS_SECRET_ACCESS_KEY'] = options[:secret_key]
-  ENV['AWS_DEFAULT_REGION'] = options[:bucket_region] unless options[:bucket_region].to_s.eql?('')
+  ENV['AWS_DEFAULT_REGION'] = options[:bucket_region] unless options[:bucket_region].to_s.empty?
 
-  #
-  # define object path
-  base_path_in_bucket = ''
-  if options[:path_in_bucket]
-    base_path_in_bucket = options[:path_in_bucket]
-  else
-    utc_timestamp = Time.now.utc.to_i
-	log_info("timestamp #{utc_timestamp}")
-    base_path_in_bucket = "bitrise_#{options[:app_slug]}/#{utc_timestamp}_build_#{options[:build_slug]}"
-  end
-
-  #
-  # supported: private, public_read
-  acl_arg = 'public-read'
-  if options[:acl]
-    case options[:acl]
-    when 'public_read'
-      acl_arg = 'public-read'
-    when 'private'
-      acl_arg = 'private'
-    else
-      fail "Invalid ACL option: #{options[:acl]}"
-    end
-  end
 
   #
   # ipa upload
@@ -124,10 +100,17 @@ begin
   file_path_in_bucket = "#{base_path_in_bucket}/#{File.basename(options[:file])}"
   file_full_s3_path = s3_object_uri_for_bucket_and_path(options[:bucket_name], file_path_in_bucket)
   public_url_file = public_url_for_bucket_and_path(options[:bucket_name], options[:bucket_region], file_path_in_bucket)
+  base_path_in_bucket = options[:path_in_bucket] || "bitrise_#{options[:app_slug]}/#{Time.now.utc.to_i}_build_#{options[:build_slug]}"
 
   fail 'Failed to upload file' unless do_s3upload(options[:file], file_full_s3_path, acl_arg)
 
   export_output('S3_UPLOAD_STEP_URL', public_url_file)
+  # supported: private, public_read
+  acl_arg = case options[:acl]
+            when 'public_read' then 'public-read'
+            when 'private' then 'private'
+            else fail "Invalid ACL option: #{options[:acl]}"
+            end
 
   log_done('File upload success')
 
