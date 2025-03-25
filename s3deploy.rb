@@ -11,8 +11,7 @@ require 'time'
 # --------------------------
 
 def log_fail(message)
-  puts
-  puts "\e[31m#{message}\e[0m"
+  puts "\n\e[31m#{message}\e[0m"
   exit(1)
 end
 
@@ -21,8 +20,7 @@ def log_warn(message)
 end
 
 def log_info(message)
-  puts
-  puts "\e[34m#{message}\e[0m"
+  puts "\n\e[34m#{message}\e[0m"
 end
 
 def log_details(message)
@@ -34,15 +32,12 @@ def log_done(message)
 end
 
 def s3_object_uri_for_bucket_and_path(bucket_name, path_in_bucket)
-  return "s3://#{bucket_name}/#{path_in_bucket}"
+  "s3://#{bucket_name}/#{path_in_bucket}"
 end
 
 def public_url_for_bucket_and_path(bucket_name, bucket_region, path_in_bucket)
-  if bucket_region.to_s == '' || bucket_region.to_s == 'us-east-1'
-    return "https://s3.amazonaws.com/#{bucket_name}/#{path_in_bucket}"
-  end
-
-  return "https://s3-#{bucket_region}.amazonaws.com/#{bucket_name}/#{path_in_bucket}"
+  return "https://s3.amazonaws.com/#{bucket_name}/#{path_in_bucket}" if bucket_region.to_s.empty? || bucket_region == 'us-east-1'
+  "https://s3-#{bucket_region}.amazonaws.com/#{bucket_name}/#{path_in_bucket}"
 end
 
 def export_output(out_key, out_value)
@@ -54,7 +49,7 @@ def export_output(out_key, out_value)
 end
 
 def do_s3upload(sourcepth, full_destpth, aclstr)
-  return system(%Q{aws s3 cp "#{sourcepth}" "#{full_destpth}" --acl "#{aclstr}"})
+  system(%Q{aws s3 cp "#{sourcepth}" "#{full_destpth}" --acl "#{aclstr}"})
 end
 
 # -----------------------
@@ -73,23 +68,8 @@ options = {
   acl: ENV['file_access_level']
 }
 
-#
-# Print options
 log_info('Configs:')
-log_details("* file_path: #{options[:file]}")
-log_details("* app_slug: #{options[:app_slug]}")
-log_details("* build_slug: #{options[:build_slug]}")
-
-log_details('* aws_access_key: ') if options[:access_key].to_s == ''
-log_details('* aws_access_key: ***') unless options[:access_key].to_s == ''
-
-log_details('* aws_secret_key: ') if options[:secret_key].to_s == ''
-log_details('* aws_secret_key: ***') unless options[:secret_key].to_s == ''
-
-log_details("* bucket_name: #{options[:bucket_name]}")
-log_details("* bucket_region: #{options[:bucket_region]}")
-log_details("* path_in_bucket: #{options[:path_in_bucket]}")
-log_details("* file_access_level: #{options[:acl]}")
+options.each { |key, value| log_details("* #{key}: #{value || 'N/A'}") }
 
 status = 'success'
 begin
@@ -160,9 +140,8 @@ begin
   log_details("* File: #{public_url_file}")
 rescue => ex
   status = 'failed'
-  log_fail("#{ex}")
+  log_fail(ex.message)
 ensure
   export_output('S3_UPLOAD_STEP_STATUS', status)
-  puts
-  log_done("#{status}")
+  log_done("Status: #{status}")
 end
