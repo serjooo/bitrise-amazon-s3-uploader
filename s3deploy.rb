@@ -11,8 +11,7 @@ require 'time'
 # --------------------------
 
 def log_fail(message)
-  puts
-  puts "\e[31m#{message}\e[0m"
+  puts "\n\e[31m#{message}\e[0m"
   exit(1)
 end
 
@@ -21,8 +20,7 @@ def log_warn(message)
 end
 
 def log_info(message)
-  puts
-  puts "\e[34m#{message}\e[0m"
+  puts "\n\e[34m#{message}\e[0m"
 end
 
 def log_details(message)
@@ -34,35 +32,48 @@ def log_done(message)
 end
 
 def s3_object_uri_for_bucket_and_path(bucket_name, path_in_bucket)
-  return "s3://#{bucket_name}/#{path_in_bucket}"
+  "s3://#{bucket_name}/#{path_in_bucket}"
 end
 
 def public_url_for_bucket_and_path(bucket_name, bucket_region, path_in_bucket)
-  if bucket_region.to_s == '' || bucket_region.to_s == 'us-east-1'
-    return "https://s3.amazonaws.com/#{bucket_name}/#{path_in_bucket}"
-  end
-
-  return "https://s3-#{bucket_region}.amazonaws.com/#{bucket_name}/#{path_in_bucket}"
+  return "https://s3.amazonaws.com/#{bucket_name}/#{path_in_bucket}" if bucket_region.to_s.empty? || bucket_region == 'us-east-1'
+  "https://s3-#{bucket_region}.amazonaws.com/#{bucket_name}/#{path_in_bucket}"
 end
 
 def export_output(out_key, out_value)
-  IO.popen("envman add --key #{out_key.to_s}", 'r+') { |f|
+  IO.popen("envman add --key #{out_key}", 'r+') do |f|
     f.write(out_value.to_s)
     f.close_write
     f.read
-  }
+  end
+end
+
+def upload_file_to_s3(file, base_path_in_bucket, bucket_name, acl_arg, options)
+  file_path_in_bucket = "#{base_path_in_bucket}/#{File.basename(file)}"
+  file_full_s3_path = s3_object_uri_for_bucket_and_path(bucket_name, file_path_in_bucket)
+  public_url_file = public_url_for_bucket_and_path(bucket_name, options[:bucket_region], file_path_in_bucket)
+  log_info("Deploy info for file #{file}:")
+  log_details("* Access Level: #{options[:acl]}")
+  log_details("* File: #{public_url_file}")
+  fail "Failed to upload file: #{file}" unless do_s3upload(file, file_full_s3_path, acl_arg)
+  return public_url_file
 end
 
 def do_s3upload(sourcepth, full_destpth, aclstr)
-  return system(%Q{aws s3 cp "#{sourcepth}" "#{full_destpth}" --acl "#{aclstr}"})
+  system(%Q{aws s3 cp "#{sourcepth}" "#{full_destpth}" --acl "#{aclstr}"})
 end
 
 # -----------------------
 # --- Main
 # -----------------------
 
+# `file_paths` should be a comma-separated string of file paths.
+if ENV['file_path']
+  log_warn("ENV['file_path'] is deprecated and will be removed in a future release. Please use ENV['file_paths'] instead.")
+end
+
 options = {
-  file: ENV['file_path'],
+  files: (ENV['file_paths'] || ENV['file_path'] || '').split(',').map(&:strip),
   app_slug: ENV['app_slug'],
   build_slug: ENV['build_slug'],
   access_key: ENV['aws_access_key'],
@@ -73,36 +84,18 @@ options = {
   acl: ENV['file_access_level']
 }
 
-#
-# Print options
 log_info('Configs:')
-log_details("* file_path: #{options[:file]}")
-log_details("* app_slug: #{options[:app_slug]}")
-log_details("* build_slug: #{options[:build_slug]}")
-
-log_details('* aws_access_key: ') if options[:access_key].to_s == ''
-log_details('* aws_access_key: ***') unless options[:access_key].to_s == ''
-
-log_details('* aws_secret_key: ') if options[:secret_key].to_s == ''
-log_details('* aws_secret_key: ***') unless options[:secret_key].to_s == ''
-
-log_details("* bucket_name: #{options[:bucket_name]}")
-log_details("* bucket_region: #{options[:bucket_region]}")
-log_details("* path_in_bucket: #{options[:path_in_bucket]}")
-log_details("* file_access_level: #{options[:acl]}")
+options.each { |key, value| log_details("* #{key}: #{value || 'N/A'}") }
 
 status = 'success'
 begin
   #
   # Validate options
-  fail 'No file found to upload. Terminating.' unless File.exist?(options[:file])
-
+  fail 'No files specified for upload. Terminating.' if options[:files].empty?
   fail 'Missing required input: app_slug' if options[:app_slug].to_s.eql?('')
   fail 'Missing required input: build_slug' if options[:build_slug].to_s.eql?('')
-
   fail 'Missing required input: aws_access_key' if options[:access_key].to_s.eql?('')
   fail 'Missing required input: aws_secret_key' if options[:secret_key].to_s.eql?('')
-
   fail 'Missing required input: bucket_name' if options[:bucket_name].to_s.eql?('')
   fail 'Missing required input: file_access_level' if options[:acl].to_s.eql?('')
 
@@ -110,59 +103,40 @@ begin
   # AWS configs
   ENV['AWS_ACCESS_KEY_ID'] = options[:access_key]
   ENV['AWS_SECRET_ACCESS_KEY'] = options[:secret_key]
-  ENV['AWS_DEFAULT_REGION'] = options[:bucket_region] unless options[:bucket_region].to_s.eql?('')
+  ENV['AWS_DEFAULT_REGION'] = options[:bucket_region] unless options[:bucket_region].to_s.empty?
 
-  #
-  # define object path
-  base_path_in_bucket = ''
-  if options[:path_in_bucket]
-    base_path_in_bucket = options[:path_in_bucket]
-  else
-    utc_timestamp = Time.now.utc.to_i
-	log_info("timestamp #{utc_timestamp}")
-    base_path_in_bucket = "bitrise_#{options[:app_slug]}/#{utc_timestamp}_build_#{options[:build_slug]}"
-  end
+  base_path_in_bucket = options[:path_in_bucket] || "bitrise_#{options[:app_slug]}/#{Time.now.utc.to_i}_build_#{options[:build_slug]}"
 
-  #
   # supported: private, public_read
-  acl_arg = 'public-read'
-  if options[:acl]
-    case options[:acl]
-    when 'public_read'
-      acl_arg = 'public-read'
-    when 'private'
-      acl_arg = 'private'
-    else
-      fail "Invalid ACL option: #{options[:acl]}"
-    end
+  acl_arg = case options[:acl]
+            when 'public_read' then 'public-read'
+            when 'private' then 'private'
+            else fail "Invalid ACL option: #{options[:acl]}"
+            end
+
+  log_info("Uploading files to S3")
+
+  @public_urls ||= []
+  options[:files].each do |file|
+    log_info("Uploading file #{file} to S3...")
+    fail "File not found: #{file}" unless File.exist?(file)
+    @public_urls << upload_file_to_s3(file, base_path_in_bucket, options[:bucket_name], acl_arg, options)
   end
 
-  #
-  # ipa upload
-  log_info('Uploading file...')
+  if @public_urls.size == 1
+    export_output('S3_UPLOAD_STEP_URL', @public_urls.first)
+  else
+    export_output('S3_UPLOAD_STEP_URLS', @public_urls.join(','))
+  end
 
-  file_path_in_bucket = "#{base_path_in_bucket}/#{File.basename(options[:file])}"
-  file_full_s3_path = s3_object_uri_for_bucket_and_path(options[:bucket_name], file_path_in_bucket)
-  public_url_file = public_url_for_bucket_and_path(options[:bucket_name], options[:bucket_region], file_path_in_bucket)
+  log_details('Public URLs:')
+  @public_urls.each { |url| log_details("* #{url}") }
+  log_done('Upload process completed successfully')
 
-  fail 'Failed to upload file' unless do_s3upload(options[:file], file_full_s3_path, acl_arg)
-
-  export_output('S3_UPLOAD_STEP_URL', public_url_file)
-
-  log_done('File upload success')
-
-  ENV['S3_UPLOAD_STEP_URL'] = "#{public_url_file}"
-
-  #
-  # Print deploy infos
-  log_info 'Deploy infos:'
-  log_details("* Access Level: #{options[:acl]}")
-  log_details("* File: #{public_url_file}")
 rescue => ex
   status = 'failed'
-  log_fail("#{ex}")
+  log_fail(ex.message)
 ensure
   export_output('S3_UPLOAD_STEP_STATUS', status)
-  puts
-  log_done("#{status}")
+  log_done("Status: #{status}")
 end
